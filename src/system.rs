@@ -395,19 +395,19 @@ fn value_to_u32(value: &Value) -> Option<u32> {
 }
 
 pub fn list_microphone_sources() -> Result<Vec<AudioSourceDevice>> {
-    match list_microphone_sources_pw_dump() {
-        Ok(devices) if !devices.is_empty() => Ok(devices),
-        Ok(pw_dump_devices) => match list_microphone_sources_pactl() {
-            Ok(pactl_devices) if !pactl_devices.is_empty() => Ok(pactl_devices),
-            Ok(_) => Ok(pw_dump_devices),
-            Err(_) => Ok(pw_dump_devices),
-        },
-        Err(pw_dump_error) => match list_microphone_sources_pactl() {
-            Ok(pactl_devices) => Ok(pactl_devices),
-            Err(pactl_error) => anyhow::bail!(
-                "Could not list PipeWire sources. pw-dump: {pw_dump_error:#} | pactl: {pactl_error:#}"
-            ),
-        },
+    let pw_dump_result = list_microphone_sources_pw_dump();
+    let pactl_result = list_microphone_sources_pactl();
+
+    match (pw_dump_result, pactl_result) {
+        (Ok(pw_dump_devices), Ok(pactl_devices)) => {
+            let merged = merge_audio_sources(pw_dump_devices, pactl_devices);
+            Ok(merged)
+        }
+        (Ok(pw_dump_devices), Err(_)) => Ok(pw_dump_devices),
+        (Err(_), Ok(pactl_devices)) => Ok(pactl_devices),
+        (Err(pw_dump_error), Err(pactl_error)) => anyhow::bail!(
+            "Could not list PipeWire sources. pw-dump: {pw_dump_error:#} | pactl: {pactl_error:#}"
+        ),
     }
 }
 
@@ -504,6 +504,30 @@ fn extract_audio_sources(entries: impl Iterator<Item = Value>) -> Vec<AudioSourc
     });
 
     devices
+}
+
+fn merge_audio_sources(
+    first: Vec<AudioSourceDevice>,
+    second: Vec<AudioSourceDevice>,
+) -> Vec<AudioSourceDevice> {
+    let mut seen_names = HashSet::new();
+    let mut merged = Vec::new();
+
+    for device in first.into_iter().chain(second) {
+        if seen_names.insert(device.node_name.clone()) {
+            merged.push(device);
+        }
+    }
+
+    merged.sort_by(|a, b| {
+        let a_key = a.description.to_lowercase();
+        let b_key = b.description.to_lowercase();
+        a_key
+            .cmp(&b_key)
+            .then_with(|| a.node_name.cmp(&b.node_name))
+    });
+
+    merged
 }
 
 fn is_monitor_source(node_name: &str) -> bool {
