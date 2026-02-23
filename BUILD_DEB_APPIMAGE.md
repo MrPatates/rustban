@@ -34,4 +34,4 @@ Output:
 ## Notes
 
 - Both scripts compile RustBAN in release mode before packaging.
-- Both scripts use `logo.png` at the project root as the app icon source.
+- Both scripts use `app_icon.png` at the project root as the app icon source.
