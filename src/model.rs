@@ -6,6 +6,29 @@ use uuid::Uuid;
 pub struct AppConfig {
     pub sends: Vec<VbanSend>,
     pub recvs: Vec<VbanRecv>,
+    pub host_info_emulation: HostInfoEmulation,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HostInfoEmulation {
+    pub enabled: bool,
+    pub app_name: String,
+    pub host_name: String,
+    pub user_name: String,
+    pub client_name: String,
+}
+
+impl Default for HostInfoEmulation {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            app_name: "VBAN".into(),
+            host_name: "vban-host".into(),
+            user_name: "vban".into(),
+            client_name: "VBAN Remote".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
