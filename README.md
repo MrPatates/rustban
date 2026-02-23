@@ -19,6 +19,16 @@ You can create and edit VBAN send/receive streams, save settings, and generate P
 - One-click PipeWire fragment generation
 - Optional PipeWire user-service restart
 
+## Screenshots
+
+### Send Menu
+
+![RustBAN Send Menu](picture/send.png)
+
+### Recv Menu
+
+![RustBAN Recv Menu](picture/recv.png)
+
 ## Tech
 
 - Rust
