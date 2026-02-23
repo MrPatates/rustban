@@ -13,7 +13,7 @@ BUILD_DIR="$DIST_DIR/.build"
 TARGET_DIR="$PROJECT_DIR/target/release"
 
 BINARY_PATH="$TARGET_DIR/$APP_NAME"
-ICON_PATH="$PROJECT_DIR/logo.png"
+ICON_PATH="$PROJECT_DIR/app_icon.png"
 
 log() {
     printf '[INFO] %s\n' "$*"
@@ -29,6 +29,24 @@ need_cmd() {
         err "Missing command: $cmd"
         exit 1
     fi
+}
+
+resolve_appimagetool() {
+    local local_tool="$PROJECT_DIR/.tools/appimagetool"
+
+    if command -v appimagetool >/dev/null 2>&1; then
+        printf '%s\n' "appimagetool"
+        return 0
+    fi
+
+    if [[ -x "$local_tool" ]]; then
+        printf '%s\n' "$local_tool"
+        return 0
+    fi
+
+    err "Missing command: appimagetool"
+    err "Install it system-wide or place an executable at: $local_tool"
+    exit 1
 }
 
 read_version() {
@@ -60,8 +78,8 @@ EOF
 
 main() {
     need_cmd cargo
-    need_cmd appimagetool
     need_cmd install
+    APPIMAGETOOL_CMD="$(resolve_appimagetool)"
 
     if [[ ! -f "$ICON_PATH" ]]; then
         err "Icon not found: $ICON_PATH"
@@ -109,7 +127,7 @@ EOF
     cp "$ICON_USR" "$APPDIR/${APP_ID}.png"
 
     log "Creating AppImage..."
-    ARCH="$APPIMAGE_ARCH" appimagetool "$APPDIR" "$APPIMAGE_OUT"
+    ARCH="$APPIMAGE_ARCH" "$APPIMAGETOOL_CMD" "$APPDIR" "$APPIMAGE_OUT"
     chmod +x "$APPIMAGE_OUT"
     log "OK: $APPIMAGE_OUT"
 }
