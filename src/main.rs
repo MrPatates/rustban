@@ -12,6 +12,7 @@ use std::sync::Arc;
 enum Tab {
     Sends,
     Recvs,
+    Settings,
 }
 
 const APP_ID: &str = "com.rustban.app";
@@ -60,18 +61,36 @@ impl App {
     }
 
     fn apply(&mut self, restart: bool) {
-        let result = (|| -> Result<()> {
+        let result = (|| -> Result<system::AutoLinkSummary> {
             self.save();
             system::apply_pipewire_fragments(&self.cfg)?;
             if restart {
                 system::restart_pipewire_user_services()?;
             }
-            Ok(())
+            system::autolink_send_sources(&self.cfg)
         })();
 
         self.status = match result {
-            Ok(()) if restart => "Fragments applied + pipewire restarted.".into(),
-            Ok(()) => "Fragments applied.".into(),
+            Ok(summary) => {
+                let mut status = if restart {
+                    "Fragments applied + pipewire restarted.".to_string()
+                } else {
+                    "Fragments applied.".to_string()
+                };
+
+                if summary.links_created > 0 {
+                    status.push_str(&format!(
+                        " Auto-link: {} link(s) created.",
+                        summary.links_created
+                    ));
+                }
+                if !summary.issues.is_empty() {
+                    status.push_str(" Auto-link warnings: ");
+                    status.push_str(&summary.issues.join(" | "));
+                }
+
+                status
+            }
             Err(e) => format!("Apply error: {e:#}"),
         };
     }
@@ -170,6 +189,14 @@ impl App {
                     ) {
                         self.tab = Tab::Recvs;
                     }
+                    if Self::tab_button(
+                        ui,
+                        self.tab == Tab::Settings,
+                        "Parametres",
+                        Color32::from_rgb(174, 125, 51),
+                    ) {
+                        self.tab = Tab::Settings;
+                    }
 
                     ui.separator();
 
@@ -179,15 +206,10 @@ impl App {
                     if Self::action_button(ui, "Refresh mics", Color32::from_rgb(69, 94, 155)) {
                         self.refresh_microphone_sources();
                     }
-                    if Self::action_button(ui, "Apply fragments", Color32::from_rgb(57, 111, 188))
-                    {
+                    if Self::action_button(ui, "Apply fragments", Color32::from_rgb(57, 111, 188)) {
                         self.apply(false);
                     }
-                    if Self::action_button(
-                        ui,
-                        "Apply + restart",
-                        Color32::from_rgb(179, 114, 48),
-                    ) {
+                    if Self::action_button(ui, "Apply + restart", Color32::from_rgb(179, 114, 48)) {
                         self.apply(true);
                     }
                 });
@@ -328,7 +350,8 @@ impl App {
                     ui.add_sized(
                         egui::vec2(170.0, 22.0),
                         egui::Label::new(
-                            RichText::new("Destination port").color(Color32::from_rgb(202, 216, 236)),
+                            RichText::new("Destination port")
+                                .color(Color32::from_rgb(202, 216, 236)),
                         ),
                     );
                     ui.add(
@@ -372,7 +395,8 @@ impl App {
                     ui.add_sized(
                         egui::vec2(170.0, 22.0),
                         egui::Label::new(
-                            RichText::new("Microphone source").color(Color32::from_rgb(202, 216, 236)),
+                            RichText::new("Microphone source")
+                                .color(Color32::from_rgb(202, 216, 236)),
                         ),
                     );
                     egui::ComboBox::from_id_source(format!("send-source-{}", i))
@@ -514,14 +538,73 @@ impl App {
         }
     }
 
+    fn ui_settings(&mut self, ui: &mut egui::Ui) {
+        Self::ui_card_frame(
+            Color32::from_rgb(35, 33, 28),
+            Color32::from_rgb(174, 125, 51),
+        )
+        .show(ui, |ui| {
+            ui.label(
+                RichText::new("Host info emulation")
+                    .strong()
+                    .size(18.0)
+                    .color(Color32::from_rgb(235, 198, 133)),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                RichText::new(
+                    "Emulate VBAN-like host identity information in stream.props for send and recv streams.",
+                )
+                .color(Color32::from_rgb(210, 218, 229)),
+            );
+            ui.add_space(8.0);
+
+            ui.checkbox(
+                &mut self.cfg.host_info_emulation.enabled,
+                "Enable host info emulation",
+            );
+            ui.add_space(8.0);
+
+            Self::ui_labeled_text(ui, "App name", &mut self.cfg.host_info_emulation.app_name);
+            Self::ui_labeled_text(ui, "Host name", &mut self.cfg.host_info_emulation.host_name);
+            Self::ui_labeled_text(ui, "User name", &mut self.cfg.host_info_emulation.user_name);
+            Self::ui_labeled_text(
+                ui,
+                "Client name",
+                &mut self.cfg.host_info_emulation.client_name,
+            );
+
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(
+                    "Applied properties: application.name, application.process.host/user, client.name, node.nick.",
+                )
+                .color(Color32::from_rgb(192, 202, 217)),
+            );
+            ui.label(
+                RichText::new("Use Save + Apply fragments to regenerate PipeWire drop-ins.")
+                    .color(Color32::from_rgb(193, 166, 122)),
+            );
+        });
+    }
+
     fn status_style(status: &str) -> (Color32, Color32) {
         let low = status.to_ascii_lowercase();
         if low.contains("error") {
-            (Color32::from_rgb(70, 30, 32), Color32::from_rgb(211, 84, 84))
+            (
+                Color32::from_rgb(70, 30, 32),
+                Color32::from_rgb(211, 84, 84),
+            )
         } else if low.contains("applied") || low.contains("saved") || low.contains("ready") {
-            (Color32::from_rgb(25, 54, 46), Color32::from_rgb(61, 176, 136))
+            (
+                Color32::from_rgb(25, 54, 46),
+                Color32::from_rgb(61, 176, 136),
+            )
         } else {
-            (Color32::from_rgb(35, 41, 52), Color32::from_rgb(98, 120, 151))
+            (
+                Color32::from_rgb(35, 41, 52),
+                Color32::from_rgb(98, 120, 151),
+            )
         }
     }
 }
@@ -544,6 +627,7 @@ impl eframe::App for App {
                 .show(ui, |ui| match self.tab {
                     Tab::Sends => self.ui_sends(ui),
                     Tab::Recvs => self.ui_recvs(ui),
+                    Tab::Settings => self.ui_settings(ui),
                 });
 
             ui.add_space(8.0);
