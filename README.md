@@ -1,4 +1,4 @@
-# RustBAN
+![RustBAN](picture/logo.png)
 
 RustBAN is a lightweight desktop app for **VBAN on PipeWire**.
 
