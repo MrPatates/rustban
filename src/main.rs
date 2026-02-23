@@ -22,24 +22,34 @@ struct App {
     tab: Tab,
     status: String,
     theme_applied: bool,
+    microphone_sources: Vec<system::AudioSourceDevice>,
 }
 
 impl App {
     fn new() -> Self {
-        match system::load_app_config() {
-            Ok(cfg) => Self {
-                cfg,
-                tab: Tab::Sends,
-                status: "Ready.".into(),
-                theme_applied: false,
-            },
-            Err(e) => Self {
-                cfg: AppConfig::default(),
-                tab: Tab::Sends,
-                status: format!("Config load error: {e:#}"),
-                theme_applied: false,
-            },
+        let (cfg, status) = match system::load_app_config() {
+            Ok(cfg) => (cfg, "Ready.".to_string()),
+            Err(e) => (AppConfig::default(), format!("Config load error: {e:#}")),
+        };
+
+        let mut app = Self {
+            cfg,
+            tab: Tab::Sends,
+            status,
+            theme_applied: false,
+            microphone_sources: Vec::new(),
+        };
+
+        if let Err(e) = app.load_microphone_sources() {
+            let scan_error = format!("Microphone scan error: {e:#}");
+            app.status = if app.status == "Ready." {
+                scan_error
+            } else {
+                format!("{} | {}", app.status, scan_error)
+            };
         }
+
+        app
     }
 
     fn save(&mut self) {
@@ -64,6 +74,26 @@ impl App {
             Ok(()) => "Fragments applied.".into(),
             Err(e) => format!("Apply error: {e:#}"),
         };
+    }
+
+    fn load_microphone_sources(&mut self) -> Result<()> {
+        self.microphone_sources = system::list_microphone_sources()?;
+        Ok(())
+    }
+
+    fn refresh_microphone_sources(&mut self) {
+        match self.load_microphone_sources() {
+            Ok(()) => {
+                self.status = format!(
+                    "Detected {} microphone source(s).",
+                    self.microphone_sources.len()
+                )
+            }
+            Err(e) => {
+                self.status = format!("Microphone scan error: {e:#}");
+                self.microphone_sources.clear();
+            }
+        }
     }
 
     fn ui_header(&mut self, ui: &mut egui::Ui) {
@@ -146,6 +176,9 @@ impl App {
                     if Self::action_button(ui, "Save", Color32::from_rgb(68, 150, 110)) {
                         self.save();
                     }
+                    if Self::action_button(ui, "Refresh mics", Color32::from_rgb(69, 94, 155)) {
+                        self.refresh_microphone_sources();
+                    }
                     if Self::action_button(ui, "Apply fragments", Color32::from_rgb(57, 111, 188))
                     {
                         self.apply(false);
@@ -182,10 +215,52 @@ impl App {
         });
     }
 
+    fn microphone_option_label(source: &system::AudioSourceDevice) -> String {
+        if source.description == source.node_name {
+            source.node_name.clone()
+        } else {
+            format!("{} ({})", source.description, source.node_name)
+        }
+    }
+
+    fn selected_microphone_label(
+        target_object: &str,
+        sources: &[system::AudioSourceDevice],
+    ) -> String {
+        let target = target_object.trim();
+        if target.is_empty() {
+            "None (manual patch in qpwgraph)".to_string()
+        } else if let Some(source) = sources.iter().find(|source| source.node_name == target) {
+            Self::microphone_option_label(source)
+        } else {
+            format!("Custom: {target}")
+        }
+    }
+
     fn ui_sends(&mut self, ui: &mut egui::Ui) {
         if Self::action_button(ui, "+ Add send", Color32::from_rgb(43, 133, 219)) {
-            self.cfg.sends.push(VbanSend::default());
+            let mut send = VbanSend::default();
+            if let Some(source) = self.microphone_sources.first() {
+                send.target_object = source.node_name.clone();
+            }
+            self.cfg.sends.push(send);
         }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "{} microphone source(s) detected.",
+                    self.microphone_sources.len()
+                ))
+                .color(Color32::from_rgb(175, 186, 204)),
+            );
+            if self.microphone_sources.is_empty() {
+                ui.label(
+                    RichText::new("Click `Refresh mics` in toolbar.")
+                        .color(Color32::from_rgb(205, 165, 103)),
+                );
+            }
+        });
         ui.add_space(8.0);
 
         if self.cfg.sends.is_empty() {
@@ -193,6 +268,7 @@ impl App {
             return;
         }
 
+        let microphone_sources = self.microphone_sources.clone();
         let mut remove_index: Option<usize> = None;
         for (i, send) in self.cfg.sends.iter_mut().enumerate() {
             let accent = if send.enabled {
@@ -290,6 +366,35 @@ impl App {
                             .clamp_range(1..=32)
                             .speed(1.0),
                     );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        egui::vec2(170.0, 22.0),
+                        egui::Label::new(
+                            RichText::new("Microphone source").color(Color32::from_rgb(202, 216, 236)),
+                        ),
+                    );
+                    egui::ComboBox::from_id_source(format!("send-source-{}", i))
+                        .selected_text(Self::selected_microphone_label(
+                            &send.target_object,
+                            &microphone_sources,
+                        ))
+                        .width(ui.available_width())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut send.target_object,
+                                String::new(),
+                                "None (manual patch in qpwgraph)",
+                            );
+                            for source in &microphone_sources {
+                                ui.selectable_value(
+                                    &mut send.target_object,
+                                    source.node_name.clone(),
+                                    Self::microphone_option_label(source),
+                                );
+                            }
+                        });
                 });
 
                 Self::ui_labeled_text(ui, "target.object", &mut send.target_object);
