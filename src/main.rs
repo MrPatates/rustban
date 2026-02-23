@@ -16,7 +16,7 @@ enum Tab {
 }
 
 const APP_ID: &str = "com.rustban.app";
-const APP_ICON_BYTES: &[u8] = include_bytes!("../logo.png");
+const APP_ICON_BYTES: &[u8] = include_bytes!("../app_icon.png");
 
 struct App {
     cfg: AppConfig,
