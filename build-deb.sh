@@ -14,7 +14,7 @@ BUILD_DIR="$DIST_DIR/.build"
 TARGET_DIR="$PROJECT_DIR/target/release"
 
 BINARY_PATH="$TARGET_DIR/$APP_NAME"
-ICON_PATH="$PROJECT_DIR/logo.png"
+ICON_PATH="$PROJECT_DIR/app_icon.png"
 
 log() {
     printf '[INFO] %s\n' "$*"
