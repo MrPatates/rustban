@@ -461,7 +461,7 @@ fn extract_audio_sources(entries: impl Iterator<Item = Value>) -> Vec<AudioSourc
             .get("media.class")
             .and_then(Value::as_str)
             .unwrap_or_default();
-        if is_pw_dump_entry && media_class != "Audio/Source" {
+        if is_pw_dump_entry && !is_audio_source_media_class(media_class) {
             continue;
         }
 
@@ -504,6 +504,14 @@ fn extract_audio_sources(entries: impl Iterator<Item = Value>) -> Vec<AudioSourc
     });
 
     devices
+}
+
+fn is_audio_source_media_class(media_class: &str) -> bool {
+    media_class.eq_ignore_ascii_case("Audio/Source")
+        || media_class
+            .get(..13)
+            .map(|prefix| prefix.eq_ignore_ascii_case("Audio/Source/"))
+            .unwrap_or(false)
 }
 
 fn merge_audio_sources(
@@ -559,4 +567,47 @@ pub fn restart_pipewire_user_services() -> Result<()> {
     }
 
     anyhow::bail!("Could not restart pipewire via systemctl --user")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn source_entry(node_name: &str, description: &str, media_class: &str) -> Value {
+        json!({
+            "info": {
+                "props": {
+                    "node.name": node_name,
+                    "node.description": description,
+                    "media.class": media_class
+                }
+            }
+        })
+    }
+
+    #[test]
+    fn includes_audio_source_virtual_from_pw_dump() {
+        let entries = vec![source_entry(
+            "easyeffects_source",
+            "Easy Effects Source",
+            "Audio/Source/Virtual",
+        )];
+
+        let devices = extract_audio_sources(entries.into_iter());
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].node_name, "easyeffects_source");
+    }
+
+    #[test]
+    fn excludes_non_source_pw_dump_nodes() {
+        let entries = vec![source_entry(
+            "alsa_output.some_sink",
+            "Some Sink",
+            "Audio/Sink",
+        )];
+
+        let devices = extract_audio_sources(entries.into_iter());
+        assert!(devices.is_empty());
+    }
 }
